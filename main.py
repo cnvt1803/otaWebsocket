@@ -1,11 +1,11 @@
 from fastapi import Request
 from fastapi import Header
 from jose import jwt
-import requests
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import JSONResponse
 from supabase import create_client, Client
 from fastapi.middleware.cors import CORSMiddleware
+import requests
 import json
 import uvicorn
 import os

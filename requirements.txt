@@ -1,5 +1,7 @@
 fastapi
 uvicorn
 python-dotenv
-supabase
+supabase-py
 python-jose
+requests
+httpx
