@@ -2,7 +2,7 @@ import asyncio
 import websockets
 import json
 
-DEVICE_ID = "esp001"
+DEVICE_ID = "002"
 # WS_ENDPOINT = "wss://otawebsocket.onrender.com/ws"  # ✅ nếu chạy trên Render
 WS_ENDPOINT = "ws://localhost:8765/ws"  # ✅ nếu chạy local
 

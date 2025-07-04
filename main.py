@@ -1,3 +1,4 @@
+from fastapi import Request
 from fastapi import Header
 from jose import jwt
 import requests
@@ -89,23 +90,26 @@ async def websocket_endpoint(websocket: WebSocket):
 # ✅ API cho Web UI: gửi yêu cầu cập nhật OTA
 
 
-# ✅ API cho Web UI: gửi yêu cầu cập nhật OTA
 @app.post("/api/update-device")
 async def update_device_api(request: Request):
     body = await request.json()
     device_id = body.get("device_id")
 
+    # 🔍 Lấy thiết bị theo device_id
     res = supabase.table("devices").select(
-        "*").eq("device_id", device_id).execute()
+        "*").eq("device_id", device_id).single().execute()
+
     if not res.data:
         return JSONResponse({"error": "Thiết bị không tồn tại"}, status_code=404)
 
-    device = res.data[0]
+    device = res.data
     current_version = device["version"]
     device_name = device["name"]
+    user_id = device["user_id"]
 
     print(f"📤 Gửi OTA cho {device_id} ({device_name})...")
 
+    # � Lấy OTA mới nhất nếu có
     ota = get_latest_ota(device_name, current_version)
     if not ota:
         return JSONResponse({"message": "Thiết bị đã ở phiên bản mới nhất"})
@@ -113,15 +117,21 @@ async def update_device_api(request: Request):
     if device_id in connected_devices:
         ws = connected_devices[device_id]
 
-        # ✅ GỬI TRỰC TIẾP NỘI DUNG `ota` (KHÔNG BAO action)
-        await ws.send_json(ota)
+        # ✅ Tạo device_id format mới: <name>_<user_id>_<device_id>
+        ota_with_device_id = {
+            "device_id": f"{device_name}_{user_id}_{device_id}",
+            **ota
+        }
 
-        # Cập nhật trạng thái sang "waiting"
+        # 📤 Gửi dữ liệu OTA qua WebSocket
+        await ws.send_json(ota_with_device_id)
+
+        # 🛠️ Cập nhật trạng thái thiết bị thành "waiting"
         supabase.table("devices").update({"status": "waiting"}).eq(
             "device_id", device_id).execute()
 
-        print(f"📤 Đã gửi OTA cho ESP {device_id}")
-        return {"message": "Đã gửi OTA", "ota": ota}
+        print(f"� Đã gửi OTA cho ESP {device_id}")
+        return {"message": "Đã gửi OTA", "ota": ota_with_device_id}
 
     else:
         return JSONResponse({"error": "ESP chưa kết nối"}, status_code=400)
@@ -202,7 +212,7 @@ async def register_user(request: Request):
             "name": name
         }).execute()
 
-        return JSONResponse({"message": "✅ Tạo tài khoản thành công", "user_id": user_id})
+        return JSONResponse({"message": "Tạo tài khoản thành công", "user_id": user_id})
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
