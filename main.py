@@ -1,3 +1,6 @@
+from fastapi import Header
+from jose import jwt
+import requests
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import JSONResponse
 from supabase import create_client, Client
@@ -86,6 +89,7 @@ async def websocket_endpoint(websocket: WebSocket):
 # ✅ API cho Web UI: gửi yêu cầu cập nhật OTA
 
 
+# ✅ API cho Web UI: gửi yêu cầu cập nhật OTA
 @app.post("/api/update-device")
 async def update_device_api(request: Request):
     body = await request.json()
@@ -109,11 +113,8 @@ async def update_device_api(request: Request):
     if device_id in connected_devices:
         ws = connected_devices[device_id]
 
-        # ⚠️ SỬA LẠI: send_json thay vì send(json.dumps)
-        await ws.send_json({
-            "action": "ota_update",
-            "ota": ota
-        })
+        # ✅ GỬI TRỰC TIẾP NỘI DUNG `ota` (KHÔNG BAO action)
+        await ws.send_json(ota)
 
         # Cập nhật trạng thái sang "waiting"
         supabase.table("devices").update({"status": "waiting"}).eq(
@@ -125,7 +126,138 @@ async def update_device_api(request: Request):
     else:
         return JSONResponse({"error": "ESP chưa kết nối"}, status_code=400)
 
-# ✅ Chạy server
+
+@app.post("/api/login")
+async def login(request: Request):
+    body = await request.json()
+    email = body.get("email")
+    password = body.get("password")
+
+    if not email or not password:
+        return JSONResponse({"error": "Thiếu email hoặc mật khẩu"}, status_code=400)
+
+    try:
+        url = f"{SUPABASE_URL}/auth/v1/token?grant_type=password"
+        headers = {
+            "apikey": SUPABASE_KEY,  # dùng anon hoặc service role key đều được
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "email": email,
+            "password": password
+        }
+
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code != 200:
+            return JSONResponse({"error": response.json()}, status_code=401)
+
+        data = response.json()
+        access_token = data["access_token"]
+        user_id = data["user"]["id"]
+
+        return JSONResponse({
+            "message": "✅ Đăng nhập thành công",
+            "access_token": access_token,
+            "user_id": user_id
+        })
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/register")
+async def register_user(request: Request):
+    body = await request.json()
+    email = body.get("email")
+    password = body.get("password")
+    name = body.get("name")
+    role = body.get("role", "user")
+
+    if not email or not password:
+        return JSONResponse({"error": "Thiếu email hoặc password"}, status_code=400)
+
+    try:
+        # Gửi POST trực tiếp tới Supabase Auth API
+        url = f"{SUPABASE_URL}/auth/v1/admin/users"
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "email": email,
+            "password": password
+        }
+
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code >= 300:
+            return JSONResponse({"error": response.json()}, status_code=response.status_code)
+
+        user_id = response.json()["id"]
+
+        # Gán role vào bảng user_profiles
+        supabase.table("user_profiles").insert({
+            "id": user_id,
+            "role": role,
+            "name": name
+        }).execute()
+
+        return JSONResponse({"message": "✅ Tạo tài khoản thành công", "user_id": user_id})
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# 👇 Thay bằng key của bạn
+SUPABASE_JWT_SECRET = "koJJ0d58iKJYPdhEZhBIBKLEXno9HRWgE6eCC7SVsd/HrbcPfSsxgvppGthK0ciLIBM+RSUSLSnjttsQ+wJ2sA=="
+
+
+def decode_token(token: str):
+    try:
+        payload = jwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"])
+        return payload.get("sub")  # chính là user_id
+    except Exception as e:
+        print("❌ Token decode error:", e)
+        return None
+
+
+@app.post("/api/add-device")
+async def add_device(request: Request, authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        return JSONResponse({"error": "Thiếu token"}, status_code=401)
+
+    token = authorization.replace("Bearer ", "")
+    user_id = decode_token(token)
+
+    if not user_id:
+        return JSONResponse({"error": "Token không hợp lệ"}, status_code=403)
+
+    body = await request.json()
+    device_id = body.get("device_id")
+    name = body.get("name")
+    location = body.get("location")
+
+    if not all([device_id, name, location]):
+        return JSONResponse({"error": "Thiếu thông tin thiết bị"}, status_code=400)
+
+    # ✅ Kiểm tra tồn tại
+    res = supabase.table("devices").select(
+        "*").eq("device_id", device_id).execute()
+    if res.data:
+        return JSONResponse({"error": "Thiết bị đã tồn tại"}, status_code=409)
+
+    # ✅ Thêm thiết bị cho user đang đăng nhập
+    supabase.table("devices").insert({
+        "user_id": user_id,
+        "device_id": device_id,
+        "name": name,
+        "version": "1.0.0",
+        "location": location,
+        "status": "none"
+    }).execute()
+
+    return JSONResponse({"message": "✅ Thiết bị đã được thêm cho user đăng nhập"})
+
 
 # 🔁 Chạy local với port=8765 hoặc Render tự chọn PORT
 if __name__ == "__main__":
