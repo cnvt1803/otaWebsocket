@@ -6,8 +6,7 @@ import random
 
 DEVICE_ID = "002"
 WS_ENDPOINT = "ws://localhost:8765/ws"  # hoặc wss://... nếu deploy online
-
-# 🧠 Task gửi ping giữ kết nối mỗi 5s
+# WS_ENDPOINT = "wss://otawebsocket.onrender.com/ws"
 
 # 🔁 Task gửi ping mỗi 5s
 

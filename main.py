@@ -315,4 +315,10 @@ async def delete_device(request: Request, authorization: str = Header(None)):
 # 🔁 Chạy local với port=8765 hoặc Render tự chọn PORT
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8765))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=True,
+        log_level="debug",         # 👈 Thêm dòng này để in debug log
+    )
