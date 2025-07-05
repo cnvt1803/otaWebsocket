@@ -5,15 +5,15 @@ from datetime import datetime
 import random
 
 DEVICE_ID = "002"
-WS_ENDPOINT = "ws://localhost:8765/ws"  # hoặc wss://... nếu deploy online
-# WS_ENDPOINT = "wss://otawebsocket.onrender.com/ws"
+# WS_ENDPOINT = "ws://localhost:8765/ws"
+WS_ENDPOINT = "wss://otawebsocket.onrender.com/ws"
 
 # 🔁 Task gửi ping mỗi 5s
 
 
 async def send_ping(websocket):
     while True:
-        await asyncio.sleep(5)
+        await asyncio.sleep(20)
         msg = {
             "action": "ping",
             "device_id": DEVICE_ID
@@ -27,7 +27,7 @@ async def send_ping(websocket):
 
 async def send_fake_log(websocket):
     while True:
-        await asyncio.sleep(10)
+        await asyncio.sleep(20)
         fake_data = {
             "action": "log",
             "device_id": DEVICE_ID,

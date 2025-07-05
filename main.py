@@ -1,3 +1,4 @@
+from fastapi.responses import PlainTextResponse
 from fastapi import Request
 from fastapi import Header
 from jose import jwt
@@ -28,6 +29,11 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 connected_devices: dict[str, WebSocket] = {}
 
 # ✅ Hàm lấy OTA mới nhất
+
+
+@app.get("/")
+async def root():
+    return PlainTextResponse("WebSocket OTA Server is running.")
 
 
 def get_latest_ota(device_name, current_version):
@@ -320,5 +326,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port,
         reload=True,
-        log_level="debug",         # 👈 Thêm dòng này để in debug log
+        log_level="debug",
     )
