@@ -10,6 +10,7 @@ import requests
 import json
 import uvicorn
 import os
+import asyncio
 # ✅ Khởi tạo FastAPI
 app = FastAPI()
 
@@ -26,8 +27,8 @@ SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ✅ Danh sách thiết bị đang kết nối
-connected_devices: dict[str, WebSocket] = {}
-
+connected_devices: dict[str, dict[str, WebSocket]] = {}
+reconnect_tasks: dict[str, asyncio.Task] = {}
 # ✅ Hàm lấy OTA mới nhất
 
 
@@ -44,7 +45,7 @@ def get_latest_ota(device_name, current_version):
         if ota["version"] != current_version:
             return ota
     except Exception as e:
-        print("⚠️ OTA fetch error:", e)
+        print("❌ OTA fetch error:", e)
     return None
 
 
@@ -55,51 +56,154 @@ def update_device(device_id, version):
         .execute()
 
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    print("🚀 WebSocket /ws đã được gọi")
+async def handle_reconnect_timeout(device_id: str):
+    try:
+        await asyncio.sleep(30)
+        print(f"⏰ ESP {device_id} không reconnect sau 30s! Ghi cảnh báo.")
+        supabase.table("devices").update({
+            "warning": "Thiết bị mất kết nối hơn 30 giây"
+        }).eq("device_id", device_id).execute()
+    except asyncio.CancelledError:
+        print(f"✅ ESP {device_id} đã reconnect — bỏ cảnh báo")
+
+
+@app.websocket("/ws/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str):
+    print(f"🌐 WebSocket /ws/{user_id} đã được gọi")
     await websocket.accept()
     device_id = None
 
     try:
         while True:
-            print("Chờ tin nhắn từ ESP...")
+            print(f"{user_id}] Chờ tin nhắn từ ESP...")
             message = await websocket.receive_text()
-            print(f"Nhận từ ESP: {message}")
+            print(f"[{user_id}] Nhận từ ESP: {message}")
 
             try:
                 data = json.loads(message)
-                action = data.get("action")
+                command = data.get("command")
+                device_id = data.get("device_id")
 
-                if action == "register_esp":
-                    device_id = data["device_id"]
-                    connected_devices[device_id] = websocket
-                    print(f" ESP {device_id} đã kết nối")
-                    print("📚 Danh sách thiết bị đang kết nối:",
-                          list(connected_devices.keys()))
+                if command == "REGISTER_DEVICE":
+                    if user_id not in connected_devices:
+                        connected_devices[user_id] = {}
+                    connected_devices[user_id][device_id] = websocket
 
-                elif action == "ota_done":
-                    new_version = data["version"]
-                    print(f"ESP {device_id} đã cập nhật lên v{new_version}")
+                    if device_id in reconnect_tasks:
+                        reconnect_tasks[device_id].cancel()
+                        del reconnect_tasks[device_id]
+
+                    print(f"ESP {device_id} (user {user_id}) đã kết nối")
+                    print("thiết bị đang kết nối:",
+                          list(connected_devices[user_id].keys()))
+
+                    update_data = {"is_connect": "new"}
+
+                    if "version" in data:
+                        version = data["version"]
+                        update_data["version"] = version
+                        print(f"📌 Phiên bản firmware: {version}")
+
+                    supabase.table("devices").update(update_data).eq(
+                        "device_id", device_id).execute()
+
+                elif command == "UPDATE_FIRMWARE_APPROVE":
+                    print(
+                        f"ESP {device_id} bắt đầu cập nhật: v{data.get('version')}")
+
+                elif command == "UPDATE_FIRMWARE_SUCCESSFULLY":
+                    new_version = data.get("version")
+                    print(
+                        f"ESP {device_id} cập nhật thành công v{new_version}")
                     update_device(device_id, new_version)
                     await websocket.send_json({
-                        "action": "done_ack",
-                        "message": "🎉 Cập nhật thành công!"
+                        "command": "ACK_SUCCESS",
+                        "message": "Đã nhận xác nhận cập nhật thành công!"
                     })
 
-                elif action == "log":
-                    print(f" Log từ ESP {device_id}: {data}")
+                elif command == "UPDATE_FIRMWARE_FAILED":
+                    failed_version = data.get("version")
+                    error_code = data.get("error_code", "unknown")
+                    reason = data.get("reason", "Không rõ nguyên nhân")
+
+                    print(
+                        f"ESP {device_id} cập nhật v{failed_version} thất bại")
+                    print(f"Lỗi: [{error_code}] - {reason}")
+
+                    supabase.table("devices").update({
+                        "status": "failed",
+                        "error_code": error_code,
+                        "reason": reason
+                    }).eq("device_id", device_id).execute()
+
+                    await websocket.send_json({
+                        "command": "ACK_FAILED",
+                        "message": "Thiết bị đã có phiên bản mới nhất hoặc lỗi trong quá trình cập nhật.",
+                        "error_code": error_code,
+                        "reason": reason
+                    })
+
+                elif command == "REGISTER_NEW_DEVICE":
+                    device_name = data.get("name")
+                    version = data.get("version", "unknown")
+
+                    if not device_name:
+                        await websocket.send_json({
+                            "command": "ACK_FAILED",
+                            "message": "Thiếu tên thiết bị!"
+                        })
+                        return
+
+                    insert_result = supabase.table("devices").insert({
+                        "user_id": user_id,
+                        "name": device_name,
+                        "version": version,
+                        "status": "new",
+                        "is_connect": "online"
+                    }).execute()
+
+                    if insert_result.data and len(insert_result.data) > 0:
+                        device_id = insert_result.data[0]["device_id"]
+
+                        if user_id not in connected_devices:
+                            connected_devices[user_id] = {}
+                        connected_devices[user_id][device_id] = websocket
+
+                        print(
+                            f"Đã tạo và kết nối thiết bị mới: {device_id} cho user {user_id}")
+                        print("Thiết bị đang kết nối:",
+                              list(connected_devices[user_id].keys()))
+
+                        await websocket.send_json({
+                            "command": "ACK_NEW_DEVICE",
+                            "device_id": device_id,
+                            "message": "Thiết bị mới đã được tạo"
+                        })
+                    else:
+                        await websocket.send_json({
+                            "command": "ACK_FAILED",
+                            "message": "Không thể tạo thiết bị mới"
+                        })
+
+                elif command == "LOG":
+                    print(f"Log từ {device_id}: {data}")
 
                 else:
-                    print(f"Action: {data}")
+                    print(f"Lệnh không xác định: {command}")
 
             except Exception as e:
-                print(" Lỗi xử lý tin nhắn:", e)
+                print("❌ Lỗi xử lý frame:", e)
 
     except WebSocketDisconnect:
-        print(f"🔴 ESP {device_id} ngắt kết nối")
-        if device_id in connected_devices:
-            del connected_devices[device_id]
+        print(f"🔴 ESP {device_id} (user {user_id}) ngắt kết nối")
+        if user_id in connected_devices and device_id in connected_devices[user_id]:
+            del connected_devices[user_id][device_id]
+
+        supabase.table("devices").update({"is_connect": "offline"}).eq(
+            "device_id", device_id).execute()
+
+        task = asyncio.create_task(handle_reconnect_timeout(device_id))
+        reconnect_tasks[device_id] = task
 
 
 @app.post("/api/update-device")
@@ -117,16 +221,17 @@ async def update_device_api(request: Request):
     device_name = device["name"]
     user_id = device["user_id"]
 
-    print(f" Gửi OTA cho {device_id} ({device_name})...")
+    print(f"🚀 Gửi OTA cho {device_id} ({device_name}) thuộc user {user_id}")
 
     ota = get_latest_ota(device_name, current_version)
     if not ota:
         return JSONResponse({"message": "Thiết bị đã ở phiên bản mới nhất"})
 
-    if device_id in connected_devices:
-        ws = connected_devices[device_id]
+    if user_id in connected_devices and device_id in connected_devices[user_id]:
+        ws = connected_devices[user_id][device_id]
+
         ota_with_device_id = {
-            "device_id": f"{device_name}_{user_id}_{device_id}",
+            "device_id": device_id,
             **ota
         }
 
@@ -135,7 +240,7 @@ async def update_device_api(request: Request):
         supabase.table("devices").update({"status": "waiting"}).eq(
             "device_id", device_id).execute()
 
-        print(f"Đã gửi OTA cho ESP {device_id}")
+        print(f"✅ Đã gửi OTA cho ESP {device_id}")
         return {"message": "Đã gửi OTA", "ota": ota_with_device_id}
     else:
         return JSONResponse({"error": "ESP chưa kết nối"}, status_code=400)

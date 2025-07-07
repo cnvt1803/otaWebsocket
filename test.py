@@ -2,56 +2,74 @@ import asyncio
 import websockets
 import json
 from datetime import datetime
-import random
 
 DEVICE_ID = "002"
-# WS_ENDPOINT = "ws://localhost:8765/ws"
-WS_ENDPOINT = "wss://otawebsocket.onrender.com/ws"
-
-# 🔁 Task gửi ping mỗi 5s
+DEVICE_VERSION = "1.0.2"
+WS_ENDPOINT = "ws://localhost:8765/ws"
+# WS_ENDPOINT = "wss://otawebsocket.onrender.com/ws"
 
 
 async def send_ping(websocket):
     while True:
         await asyncio.sleep(20)
         msg = {
-            "action": "ping",
+            "command": "PING",
             "device_id": DEVICE_ID
         }
-        print("📤 Gửi ping:", msg)  # 👈 thêm dòng này
+        print("Gửi ping:", msg)
         await websocket.send(json.dumps(msg))
 
-
-# 🧠 Task gửi log giả lập mỗi 10s
+# 📝 Gửi log định kỳ
 
 
 async def send_fake_log(websocket):
     while True:
-        await asyncio.sleep(20)
+        await asyncio.sleep(60)
         fake_data = {
-            "action": "log",
+            "command": "LOG",
             "device_id": DEVICE_ID,
             "timestamp": datetime.now().isoformat(),
-            "temperature": round(random.uniform(25, 35), 2),
-            "humidity": round(random.uniform(40, 60), 2)
         }
         await websocket.send(json.dumps(fake_data))
-        print("📝 Gửi log:", fake_data)
+        print("Gửi log:", fake_data)
 
-# 🧠 Task chính (nhận dữ liệu từ server)
+
+async def respond_ota(websocket, version, url):
+    print(f"🚀 Nhận yêu cầu OTA: v{version}, url: {url}")
+    await asyncio.sleep(20)
+    await websocket.send(json.dumps({
+        "command": "UPDATE_FIRMWARE_APPROVE",
+        "device_id": DEVICE_ID,
+        "version": version,
+        "url": url
+    }))
+    print("📥 Đang cập nhật firmware...")
+
+    await asyncio.sleep(3)
+
+    await websocket.send(json.dumps({
+        "command": "UPDATE_FIRMWARE_SUCCESSFULLY",
+        "device_id": DEVICE_ID,
+        "version": version,
+        "url": url
+    }))
+    print("✅ Đã cập nhật thành công.")
+
+# 🔌 Thiết bị giả lập
 
 
 async def fake_esp():
     try:
         async with websockets.connect(WS_ENDPOINT) as websocket:
-            # Đăng ký thiết bị với server
+            # Gửi frame REGISTER_DEVICE
             await websocket.send(json.dumps({
-                "action": "register_esp",
-                "device_id": DEVICE_ID
+                "command": "REGISTER_DEVICE",
+                "device_id": DEVICE_ID,
+                "version": DEVICE_VERSION
             }))
-            print(f"🔌 ESP {DEVICE_ID} đã kết nối đến server...")
+            print(f"🔌 Thiết bị {DEVICE_ID} đã kết nối...")
 
-            # 🎯 Chạy song song 2 task gửi dữ liệu
+            # Gửi ping và log song song
             asyncio.create_task(send_ping(websocket))
             asyncio.create_task(send_fake_log(websocket))
 
@@ -61,33 +79,28 @@ async def fake_esp():
                     print("📩 Nhận từ server:", message)
                     data = json.loads(message)
 
-                    # Nhận OTA từ server
-                    if "version" in data and "url" in data:
-                        print(
-                            f"🚀 OTA mới: v{data['version']}, tải từ: {data['url']}")
-                        await asyncio.sleep(2)  # Giả lập delay tải firmware
-                        await websocket.send(json.dumps({
-                            "action": "ota_done",
-                            "device_id": DEVICE_ID,
-                            "version": data["version"]
-                        }))
-                        print("✅ OTA hoàn tất, đã báo server.")
-
-                    elif data.get("message"):
-                        print("📬 Server phản hồi:", data["message"])
-
+                    command = data.get("command")
+                    if command == "UPDATE_FIRMWARE":
+                        await respond_ota(
+                            websocket,
+                            data.get("version"),
+                            data.get("url")
+                        )
+                    elif command == "ACK_SUCCESS":
+                        print("📬 Server xác nhận OTA thành công.")
+                    elif command == "ACK_FAILED":
+                        print("⚠️ Server báo không cần cập nhật.")
                     else:
                         print("❓ Phản hồi không xác định:", data)
 
                 except websockets.exceptions.ConnectionClosed:
-                    print("❌ ESP mất kết nối với server")
+                    print("❌ Mất kết nối với server.")
                     break
 
     except ConnectionRefusedError:
-        print("❌ Không kết nối được server! Kiểm tra lại.")
+        print("Không kết nối được server.")
     except Exception as e:
-        print("⚠️ Lỗi không xác định:", e)
-
+        print("Lỗi không xác định:", e)
 
 if __name__ == "__main__":
     asyncio.run(fake_esp())
