@@ -206,44 +206,102 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
         reconnect_tasks[device_id] = task
 
 
+# @app.post("/api/update-device")
+# async def update_device_api(request: Request):
+#     body = await request.json()
+#     device_id = body.get("device_id")
+
+#     res = supabase.table("devices").select(
+#         "*").eq("device_id", device_id).single().execute()
+#     if not res.data:
+#         return JSONResponse({"error": "Thiết bị không tồn tại"}, status_code=404)
+
+#     device = res.data
+#     current_version = device["version"]
+#     device_name = device["name"]
+#     user_id = device["user_id"]
+
+#     print(f"🚀 Gửi OTA cho {device_id} ({device_name}) thuộc user {user_id}")
+
+#     ota = get_latest_ota(device_name, current_version)
+#     if not ota:
+#         return JSONResponse({"message": "Thiết bị đã ở phiên bản mới nhất"})
+
+#     if user_id in connected_devices and device_id in connected_devices[user_id]:
+#         ws = connected_devices[user_id][device_id]
+
+#         ota_with_device_id = {
+#             "device_id": device_id,
+#             **ota
+#         }
+
+#         await ws.send_json(ota_with_device_id)
+
+#         supabase.table("devices").update({"status": "waiting"}).eq(
+#             "device_id", device_id).execute()
+
+#         print(f"✅ Đã gửi OTA cho ESP {device_id}")
+#         return {"message": "Đã gửi OTA", "ota": ota_with_device_id}
+#     else:
+#         return JSONResponse({"error": "ESP chưa kết nối"}, status_code=400)
 @app.post("/api/update-device")
 async def update_device_api(request: Request):
     body = await request.json()
-    device_id = body.get("device_id")
+    device_ids = body.get("device_ids")  # <- giờ nhận 1 list
 
-    res = supabase.table("devices").select(
-        "*").eq("device_id", device_id).single().execute()
-    if not res.data:
-        return JSONResponse({"error": "Thiết bị không tồn tại"}, status_code=404)
+    if not device_ids or not isinstance(device_ids, list):
+        return JSONResponse({"error": "Vui lòng cung cấp danh sách device_ids"}, status_code=400)
 
-    device = res.data
-    current_version = device["version"]
-    device_name = device["name"]
-    user_id = device["user_id"]
+    results = []
 
-    print(f"🚀 Gửi OTA cho {device_id} ({device_name}) thuộc user {user_id}")
+    for device_id in device_ids:
+        try:
+            res = supabase.table("devices").select(
+                "*").eq("device_id", device_id).single().execute()
+            if not res.data:
+                results.append(
+                    {"device_id": device_id, "status": "❌ Không tồn tại"})
+                continue
 
-    ota = get_latest_ota(device_name, current_version)
-    if not ota:
-        return JSONResponse({"message": "Thiết bị đã ở phiên bản mới nhất"})
+            device = res.data
+            current_version = device["version"]
+            device_name = device["name"]
+            user_id = device["user_id"]
 
-    if user_id in connected_devices and device_id in connected_devices[user_id]:
-        ws = connected_devices[user_id][device_id]
+            print(f"🚀 Xử lý OTA cho {device_id} ({device_name})")
 
-        ota_with_device_id = {
-            "device_id": device_id,
-            **ota
-        }
+            ota = get_latest_ota(device_name, current_version)
+            if not ota:
+                results.append(
+                    {"device_id": device_id, "status": "✅ Đã ở phiên bản mới nhất"})
+                continue
 
-        await ws.send_json(ota_with_device_id)
+            if user_id in connected_devices and device_id in connected_devices[user_id]:
+                ws = connected_devices[user_id][device_id]
 
-        supabase.table("devices").update({"status": "waiting"}).eq(
-            "device_id", device_id).execute()
+                ota_with_device_id = {
+                    "device_id": device_id,
+                    **ota
+                }
 
-        print(f"✅ Đã gửi OTA cho ESP {device_id}")
-        return {"message": "Đã gửi OTA", "ota": ota_with_device_id}
-    else:
-        return JSONResponse({"error": "ESP chưa kết nối"}, status_code=400)
+                await ws.send_json(ota_with_device_id)
+
+                supabase.table("devices").update({"status": "waiting"}).eq(
+                    "device_id", device_id).execute()
+
+                print(f"✅ Gửi OTA thành công cho ESP {device_id}")
+                results.append(
+                    {"device_id": device_id, "status": "✅ Đã gửi OTA"})
+            else:
+                results.append(
+                    {"device_id": device_id, "status": "⚠️ ESP chưa kết nối"})
+
+        except Exception as e:
+            print(f"❌ Lỗi khi xử lý {device_id}: {e}")
+            results.append(
+                {"device_id": device_id, "status": f"❌ Lỗi: {str(e)}"})
+
+    return {"results": results}
 
 
 @app.post("/api/login")
@@ -290,6 +348,7 @@ async def register_user(request: Request):
     email = body.get("email")
     password = body.get("password")
     name = body.get("name")
+    phone = body.get("phone")
     role = body.get("role", "user")
 
     if not email or not password:
@@ -305,7 +364,7 @@ async def register_user(request: Request):
         }
         payload = {
             "email": email,
-            "password": password
+            "password": password,
         }
 
         response = requests.post(url, json=payload, headers=headers)
@@ -318,7 +377,9 @@ async def register_user(request: Request):
         supabase.table("user_profiles").insert({
             "id": user_id,
             "role": role,
-            "name": name
+            "name": name,
+            "email": email,
+            "phone": phone
         }).execute()
 
         return JSONResponse({"message": "Tạo tài khoản thành công", "user_id": user_id})
@@ -333,15 +394,14 @@ SUPABASE_JWT_SECRET = "koJJ0d58iKJYPdhEZhBIBKLEXno9HRWgE6eCC7SVsd/HrbcPfSsxgvppG
 
 def decode_token(token: str):
     try:
-        # ✅ Bỏ qua kiểm tra audience bằng cách thêm `options`
         payload = jwt.decode(
             token,
             SUPABASE_JWT_SECRET,
             algorithms=["HS256"],
-            options={"verify_aud": False}  # 👈 chính chỗ này
+            options={"verify_aud": False}
         )
         print("✅ Token payload:", payload)
-        return payload.get("sub")  # user_id
+        return payload.get("sub")
     except Exception as e:
         print("❌ Token decode error:", e)
         return None
@@ -366,7 +426,6 @@ async def add_device(request: Request, authorization: str = Header(None)):
         return JSONResponse({"error": "Thiếu thông tin thiết bị"}, status_code=400)
 
     try:
-        # ✅ Không truyền device_id → trigger trong DB tự sinh
         insert_result = supabase.table("devices").insert({
             "user_id": user_id,
             "name": name,
@@ -377,7 +436,6 @@ async def add_device(request: Request, authorization: str = Header(None)):
 
         return JSONResponse({
             "message": "✅ Thiết bị đã được thêm",
-            # hoặc insert_result.data nếu nhiều record
             "device": insert_result.data[0]
         })
 
@@ -403,7 +461,6 @@ async def delete_device(request: Request, authorization: str = Header(None)):
     if not device_id:
         return JSONResponse({"error": "Thiếu device_id"}, status_code=400)
 
-    # Kiểm tra thiết bị có tồn tại và thuộc user không
     res = supabase.table("devices").select("*").match({
         "user_id": user_id,
         "device_id": device_id
@@ -422,6 +479,114 @@ async def delete_device(request: Request, authorization: str = Header(None)):
     except Exception as e:
         print("❌ Lỗi khi xoá thiết bị:", e)
         return JSONResponse({"error": "Không thể xoá thiết bị"}, status_code=500)
+
+
+@app.post("/api/update-device-info")
+async def update_device_info(request: Request, authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        return JSONResponse({"error": "Thiếu token"}, status_code=401)
+
+    token = authorization.replace("Bearer ", "").strip()
+    user_id = decode_token(token)
+
+    if not user_id:
+        return JSONResponse({"error": "Token không hợp lệ"}, status_code=403)
+
+    body = await request.json()
+    device_id = body.get("device_id")
+    if not device_id:
+        return JSONResponse({"error": "Thiếu device_id"}, status_code=400)
+
+    # 🎯 Chỉ cho phép sửa 3 trường này
+    allowed_fields = ["name", "location", "version"]
+    update_data = {key: body[key] for key in allowed_fields if key in body}
+
+    if not update_data:
+        return JSONResponse({"error": "Không có trường hợp lệ để cập nhật"}, status_code=400)
+
+    try:
+        # 🔒 Kiểm tra quyền sở hữu thiết bị
+        res = supabase.table("devices").select("user_id").eq(
+            "device_id", device_id).single().execute()
+        if not res.data:
+            return JSONResponse({"error": "Thiết bị không tồn tại"}, status_code=404)
+
+        if res.data["user_id"] != user_id:
+            return JSONResponse({"error": "Bạn không có quyền sửa thiết bị này"}, status_code=403)
+
+        # ✅ Tiến hành cập nhật
+        result = supabase.table("devices") \
+            .update(update_data) \
+            .eq("device_id", device_id) \
+            .execute()
+
+        return JSONResponse({
+            "message": "✅ Đã cập nhật thiết bị thành công",
+            "device": result.data[0]
+        })
+
+    except Exception as e:
+        print("❌ Lỗi cập nhật thiết bị:", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# Lấy danh sách thiết bị của người dùng
+
+
+@app.get("/api/my-devices")
+async def get_my_devices(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        return JSONResponse({"error": "Thiếu token"}, status_code=401)
+
+    token = authorization.replace("Bearer ", "").strip()
+    user_id = decode_token(token)
+
+    if not user_id:
+        return JSONResponse({"error": "Token không hợp lệ"}, status_code=403)
+
+    try:
+        response = supabase.table("devices").select(
+            "device_id, name, version, location, status, is_connect, warning"
+        ).eq("user_id", user_id).order("created_at", desc=True).execute()
+
+        devices = response.data
+
+        return JSONResponse({
+            "message": "Lấy danh sách thiết bị thành công",
+            "devices": devices
+        })
+
+    except Exception as e:
+        print("❌ Lỗi khi lấy danh sách thiết bị:", e)
+        return JSONResponse({"error": "Không thể lấy danh sách thiết bị"}, status_code=500)
+
+
+@app.get("/api/me")
+async def get_current_user(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        return JSONResponse({"error": "Thiếu token"}, status_code=401)
+
+    token = authorization.replace("Bearer ", "").strip()
+    user_id = decode_token(token)
+
+    if not user_id:
+        return JSONResponse({"error": "Token không hợp lệ"}, status_code=403)
+
+    try:
+        # Chỉ query user_profiles thôi, không cần đụng auth.users
+        result = supabase.table("user_profiles") \
+            .select("id, name, email, phone, role, created_at") \
+            .eq("id", user_id) \
+            .single() \
+            .execute()
+
+        return JSONResponse({
+            "user": result.data
+        })
+
+    except Exception as e:
+        print("❌ Lỗi lấy user:", e)
+        return JSONResponse({"error": "Lỗi server"}, status_code=500)
 
 # 🔁 Chạy local với port=8765 hoặc Render tự chọn PORT
 if __name__ == "__main__":
