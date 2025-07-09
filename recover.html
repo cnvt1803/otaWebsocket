@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Reset Password</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 400px;
+      margin: 50px auto;
+    }
+    input, button {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+    }
+    .status {
+      margin-top: 20px;
+      color: green;
+    }
+    .error {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>🔐 Đặt lại mật khẩu</h2>
+  <input type="password" id="new-password" placeholder="Mật khẩu mới" />
+  <button onclick="resetPassword()">Đặt lại mật khẩu</button>
+  <div id="status" class="status"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <script>
+    SUPABASE_URL = "https://zkzyawzjmllvqzmedsxd.supabase.co"
+    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inprenlhd3pqbWxsdnF6bWVkc3hkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE0MjkwMzUsImV4cCI6MjA2NzAwNTAzNX0.VWxY3zho-AI5eu8m5L-QQpOJN2hCE7UWcv0VayNIJS0"
+
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const access_token = hashParams.get("access_token");
+
+    async function resetPassword() {
+      const newPassword = document.getElementById("new-password").value;
+      const status = document.getElementById("status");
+
+      if (!newPassword) {
+        status.textContent = "❗ Vui lòng nhập mật khẩu mới";
+        status.classList.add("error");
+        return;
+      }
+
+      const { data, error } = await supabase.auth.updateUser(
+        { password: newPassword },
+        { accessToken: access_token }
+      );
+
+      if (error) {
+        status.textContent = "❌ Lỗi: " + error.message;
+        status.classList.add("error");
+      } else {
+        status.textContent = "✅ Đổi mật khẩu thành công! Bạn có thể đăng nhập lại.";
+        status.classList.remove("error");
+      }
+    }
+  </script>
+</body>
+</html>

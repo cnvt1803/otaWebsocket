@@ -27,6 +27,7 @@ app.add_middleware(
 # ✅ Kết nối Supabase
 SUPABASE_URL = "https://zkzyawzjmllvqzmedsxd.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inprenlhd3pqbWxsdnF6bWVkc3hkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTQyOTAzNSwiZXhwIjoyMDY3MDA1MDM1fQ.IG8eGax0lUxkUOW8TpJ6M0QvSafB-gM2NWsg6wIOlTU"
+SUPABASE_JWT_SECRET = "koJJ0d58iKJYPdhEZhBIBKLEXno9HRWgE6eCC7SVsd/HrbcPfSsxgvppGthK0ciLIBM+RSUSLSnjttsQ+wJ2sA=="
 SUPABASE_BUCKET = "ota"
 SUPABASE_FOLDER = "ota_muti"
 PUBLIC_BASE = f"https://zkzyawzjmllvqzmedsxd.storage.supabase.co/v1/object/public/{SUPABASE_BUCKET}/{SUPABASE_FOLDER}"
@@ -103,7 +104,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                     print("thiết bị đang kết nối:",
                           list(connected_devices[user_id].keys()))
 
-                    update_data = {"is_connect": "new"}
+                    update_data = {"is_connect": "online"}
 
                     if "version" in data:
                         version = data["version"]
@@ -115,12 +116,12 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
 
                 elif command == "UPDATE_FIRMWARE_APPROVE":
                     print(
-                        f"ESP {device_id} bắt đầu cập nhật: v{data.get('version')}")
+                        f"ESP {device_id} bắt đầu cập nhật: v{data.get('version')}", flush=True)
 
                 elif command == "UPDATE_FIRMWARE_SUCCESSFULLY":
                     new_version = data.get("version")
                     print(
-                        f"ESP {device_id} cập nhật thành công v{new_version}")
+                        f"ESP {device_id} cập nhật thành công v{new_version}", flush=True)
                     update_device(device_id, new_version)
                     await websocket.send_json({
                         "command": "ACK_SUCCESS",
@@ -133,7 +134,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                     reason = data.get("reason", "Không rõ nguyên nhân")
 
                     print(
-                        f"ESP {device_id} cập nhật v{failed_version} thất bại")
+                        f"ESP {device_id} cập nhật v{failed_version} thất bại", flush=True)
                     print(f"Lỗi: [{error_code}] - {reason}")
 
                     supabase.table("devices").update({
@@ -167,7 +168,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                         connected_devices[user_id][device_id] = websocket
 
                         print(
-                            f"Đã tạo và kết nối thiết bị mới: {device_id} cho user {user_id}")
+                            f"Đã tạo và kết nối thiết bị mới: {device_id} cho user {user_id}", flush=True)
                         print("Thiết bị đang kết nối:",
                               list(connected_devices[user_id].keys()))
 
@@ -181,10 +182,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                             "command": "ACK_FAILED",
                             "message": "Không thể tạo thiết bị mới"
                         })
-
-                elif command == "LOG":
-                    print(f"Log từ {device_id}: {data}")
-
                 else:
                     print(f"Lệnh không xác định: {command}")
 
@@ -368,7 +365,7 @@ async def register_user(request: Request):
         return JSONResponse({"error": "Thiếu email hoặc password"}, status_code=400)
 
     try:
-        # 🔍 Kiểm tra email đã tồn tại trong bảng user_profiles
+        # 📌 Kiểm tra email đã có trong bảng user_profiles
         check = supabase.table("user_profiles") \
             .select("email") \
             .eq("email", email) \
@@ -379,7 +376,7 @@ async def register_user(request: Request):
                 "error": "Email đã được đăng ký"
             }, status_code=409)  # 409 Conflict
 
-        # 🛠 Gửi POST trực tiếp tới Supabase Auth API để tạo user
+        # 📩 Gửi POST tới Supabase Auth API để tạo tài khoản
         url = f"{SUPABASE_URL}/auth/v1/admin/users"
         headers = {
             "apikey": SUPABASE_KEY,
@@ -392,12 +389,23 @@ async def register_user(request: Request):
         }
 
         response = requests.post(url, json=payload, headers=headers)
-        if response.status_code >= 300:
-            return JSONResponse({"error": response.json()}, status_code=response.status_code)
 
+        # ✅ Nếu email đã tồn tại trong Auth
+        if response.status_code == 422:
+            error_data = response.json()
+            if error_data.get("error_code") == "email_exists":
+                return JSONResponse({
+                    "message": "Email đã được đăng ký trong hệ thống"
+                }, status_code=409)
+
+        # ❌ Các lỗi khác
+        if response.status_code >= 300:
+            return JSONResponse({"message": response.json()}, status_code=response.status_code)
+
+        # 🆔 Lấy user_id từ Auth để lưu vào bảng user_profiles
         user_id = response.json()["id"]
 
-        # 💾 Gán role vào bảng user_profiles
+        # 💾 Insert vào bảng user_profiles
         supabase.table("user_profiles").insert({
             "id": user_id,
             "role": role,
@@ -406,15 +414,43 @@ async def register_user(request: Request):
             "phone": phone
         }).execute()
 
-        return JSONResponse({"message": "Tạo tài khoản thành công", "user_id": user_id})
+        return JSONResponse({
+            "message": "✅ Tạo tài khoản thành công",
+            "user_id": user_id
+        })
 
     except Exception as e:
         print("❌ Lỗi tạo tài khoản:", e)
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-# 👇 Thay bằng key của bạn
-SUPABASE_JWT_SECRET = "koJJ0d58iKJYPdhEZhBIBKLEXno9HRWgE6eCC7SVsd/HrbcPfSsxgvppGthK0ciLIBM+RSUSLSnjttsQ+wJ2sA=="
+@app.post("/api/forgot-password")
+async def forgot_password(request: Request):
+    body = await request.json()
+    email = body.get("email")
+
+    if not email:
+        return JSONResponse({"error": "Vui lòng nhập email"}, status_code=400)
+
+    try:
+        url = f"{SUPABASE_URL}/auth/v1/recover"
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "email": email
+        }
+
+        response = requests.post(url, json=payload, headers=headers)
+
+        if response.status_code == 200:
+            return JSONResponse({"message": "📩 Email khôi phục mật khẩu đã được gửi."})
+        else:
+            return JSONResponse({"error": response.json()}, status_code=response.status_code)
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 def decode_token(token: str):
@@ -727,86 +763,67 @@ async def upload_firmware(
 
 
 @app.get("/api/list-versions")
-async def list_all_versions():
-    result = {}
+async def get_all_firmware_versions():
+    try:
+        res = supabase.table("firmware_versions") \
+            .select("device_name, version, changelog, release_date, file_url, is_latest, created_at") \
+            .order("device_name", desc=False) \
+            .order("release_date", desc=True) \
+            .execute()
 
-    async with httpx.AsyncClient() as client:
-        try:
-            # 1. Lấy danh sách thiết bị (folder con của ota_muti/)
-            root_prefix = f"{SUPABASE_FOLDER}/"  # "ota_muti/"
-            resp_device = await client.post(
-                f"{SUPABASE_URL}/storage/v1/object/list/{SUPABASE_BUCKET}",
-                headers={"Authorization": f"Bearer {SUPABASE_KEY}"},
-                json={"prefix": root_prefix}
-            )
+        if not res.data:
+            return JSONResponse({"message": "Không có dữ liệu firmware"}, status_code=404)
 
-            if resp_device.status_code != 200:
-                return JSONResponse({
-                    "error": "❌ Không lấy được danh sách thiết bị",
-                    "detail": resp_device.text
-                }, status_code=500)
+        grouped = {}
+        for item in res.data:
+            name = item["device_name"]
+            if name not in grouped:
+                grouped[name] = []
+            grouped[name].append(item)
 
-            folders = resp_device.json()
-            device_names = [
-                item["name"].rstrip("/")
-                for item in folders
-                if item["name"].endswith("/") and item["metadata"] is None
-            ]
+        return grouped
 
-            # 2. Lặp qua từng thiết bị → lấy các version
-            for device_path in device_names:
-                device_name = device_path.split("/")[-1]
-                version_prefix = f"{SUPABASE_FOLDER}/{device_name}/"
-
-                resp_versions = await client.post(
-                    f"{SUPABASE_URL}/storage/v1/object/list/{SUPABASE_BUCKET}",
-                    headers={"Authorization": f"Bearer {SUPABASE_KEY}"},
-                    json={"prefix": version_prefix}
-                )
-
-                if resp_versions.status_code != 200:
-                    continue
-
-                files = resp_versions.json()
-                versions = set()
-
-                for obj in files:
-                    parts = obj["name"].split("/")
-                    if len(parts) >= 4 and parts[-1] == "firmware.bin":
-                        versions.add(parts[-2])  # lấy 'v1.0.1'
-
-                if versions:
-                    result[device_name] = sorted(
-                        list(versions),
-                        key=lambda v: list(map(int, v.lstrip("v").split(".")))
-                    )
-
-            return result
-
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return JSONResponse({
-                "error": "🔥 Server error",
-                "detail": str(e)
-            }, status_code=500)
+    except Exception as e:
+        print("❌ Lỗi khi lấy tất cả firmware:", e)
+        return JSONResponse({"error": "Lỗi server", "detail": str(e)}, status_code=500)
 
 
 @app.delete("/api/delete-version")
 async def delete_version(device_name: str = Query(...), version: str = Query(...)):
     prefix = f"{SUPABASE_FOLDER}/{device_name}/{version}/"
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.delete(
-            f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}",
-            headers={"Authorization": f"Bearer {SUPABASE_KEY}"},
-            params={"prefix": prefix}
-        )
+    try:
+        async with httpx.AsyncClient() as client:
+            # Gọi đúng endpoint /object/<bucket>/remove
+            resp = await client.post(
+                f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/remove",
+                headers={
+                    "Authorization": f"Bearer {SUPABASE_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={"prefixes": [prefix]}
+            )
 
-        if resp.status_code >= 300:
-            return JSONResponse({"error": "❌ Không xoá được version"}, status_code=500)
+            if resp.status_code >= 300:
+                return JSONResponse({
+                    "error": "❌ Không xoá được thư mục version trong storage",
+                    "detail": resp.text
+                }, status_code=500)
 
-        return {"message": f"✅ Đã xoá version {version} của thiết bị '{device_name}'"}
+        # Xoá bản ghi trong database
+        supabase.table("firmware_versions") \
+            .delete() \
+            .eq("device_name", device_name) \
+            .eq("version", version.replace("v", "")) \
+            .execute()
+
+        return {"message": f"✅ Đã xoá version '{version}' của thiết bị '{device_name}'"}
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8765))

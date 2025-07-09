@@ -6,7 +6,7 @@ import time
 
 # 🟢 Cấu hình thiết bị giả
 USER_ID = "0aa615bb-68a4-4a46-a461-ecd7fa9b1432"
-DEVICE_ID = "002"
+DEVICE_ID = "0aa615bb-68a4-4a46-a461-ecd7fa9b1432_6"
 FIRMWARE_VERSION = "1.0.0"
 
 # Địa chỉ WebSocket server
