@@ -5,3 +5,4 @@ supabase
 python-jose
 requests
 httpx
+python-multipart
