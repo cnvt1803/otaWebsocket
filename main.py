@@ -790,38 +790,41 @@ async def get_all_firmware_versions():
 
 @app.delete("/api/delete-version")
 async def delete_version(device_name: str = Query(...), version: str = Query(...)):
-    prefix = f"{SUPABASE_FOLDER}/{device_name}/{version}/"
+    version_folder = f"v{version}"  # vd: v1.2.1
+    # vd: ota_muti/dataloger/v1.2.1
+    base_path = f"{SUPABASE_FOLDER}/{device_name}/{version_folder}"
+
+    # Các file cần xoá
+    firmware_path = f"{base_path}/firmware.bin"
+    ota_json_path = f"{base_path}/ota.json"
 
     try:
         async with httpx.AsyncClient() as client:
-            # Gọi đúng endpoint /object/<bucket>/remove
-            resp = await client.post(
-                f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/remove",
-                headers={
-                    "Authorization": f"Bearer {SUPABASE_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={"prefixes": [prefix]}
-            )
+            for file_path in [firmware_path, ota_json_path]:
+                resp = await client.delete(
+                    f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{file_path}",
+                    headers={"Authorization": f"Bearer {SUPABASE_KEY}"}
+                )
+                if resp.status_code >= 300:
+                    print(f"⚠️ Không xoá được {file_path}: {resp.text}")
+                    return JSONResponse({
+                        "error": f"❌ Không xoá được {file_path}",
+                        "detail": resp.text
+                    }, status_code=500)
 
-            if resp.status_code >= 300:
-                return JSONResponse({
-                    "error": "❌ Không xoá được thư mục version trong storage",
-                    "detail": resp.text
-                }, status_code=500)
-
-        # Xoá bản ghi trong database
+        # ✅ Sau khi xoá file, xoá bản ghi trong bảng firmware_versions
         supabase.table("firmware_versions") \
             .delete() \
             .eq("device_name", device_name) \
-            .eq("version", version.replace("v", "")) \
+            .eq("version", version) \
             .execute()
 
-        return {"message": f"✅ Đã xoá version '{version}' của thiết bị '{device_name}'"}
+        return {
+            "message": f"✅ Đã xoá version '{version}' và các file firmware của thiết bị '{device_name}'"
+        }
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        print("❌ Lỗi khi xoá file OTA:", e)
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
