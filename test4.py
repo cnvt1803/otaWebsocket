@@ -6,7 +6,6 @@ import json
 USER_ID = "0aa615bb-68a4-4a46-a461-ecd7fa9b1432"
 
 # ✅ Tên thiết bị và vị trí để đăng ký
-DEVICE_NAME = "esp_test_auto"
 
 
 async def fake_esp():
@@ -19,7 +18,6 @@ async def fake_esp():
             # 📦 Gửi lệnh tạo thiết bị mới
             await websocket.send(json.dumps({
                 "command": "REGISTER_NEW_DEVICE",
-                "name": DEVICE_NAME,
                 "version": "1.0.0"  # Bạn có thể thay đổi phiên bản nếu cần
             }))
 
