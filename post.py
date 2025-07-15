@@ -1,34 +1,21 @@
-# import requests
-
-# url = "http://localhost:8765/api/update-device"
-
-# payload = {
-#     "device_id": "006"
-# }
-
-# response = requests.post(url, json=payload)
-
-# print("✅ Status Code:", response.status_code)
-# print("📦 Response:", response.json())
-
 import requests
 import json
 
-# Địa chỉ API của server bạn (thay bằng domain hoặc IP thật)
-API_URL = "http://localhost:8765/api/update-device"
+API_URL = "http://localhost:8765/api/update-device-version"
 
-# ID của thiết bị ESP cần update
-DEVICE_ID = "002"
+DEVICE_IDS = ["0aa615bb-68a4-4a46-a461-ecd7fa9b1432_6"]
+VERSION = "1.1.5"
 
 
-def request_ota_update(device_id):
+def request_ota_update(device_ids, version):
     payload = {
-        "device_id": device_id
+        "device_ids": device_ids,
+        "version": version
     }
 
     try:
         response = requests.post(API_URL, json=payload)
-        response.raise_for_status()  # raise lỗi nếu HTTP status >= 400
+        response.raise_for_status()
 
         data = response.json()
         print("📦 Phản hồi từ server:")
@@ -39,4 +26,4 @@ def request_ota_update(device_id):
 
 
 if __name__ == "__main__":
-    request_ota_update(DEVICE_ID)
+    request_ota_update(DEVICE_IDS, VERSION)

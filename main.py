@@ -200,48 +200,10 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
         reconnect_tasks[device_id] = task
 
 
-# @app.post("/api/update-device")
-# async def update_device_api(request: Request):
-#     body = await request.json()
-#     device_id = body.get("device_id")
-
-#     res = supabase.table("devices").select(
-#         "*").eq("device_id", device_id).single().execute()
-#     if not res.data:
-#         return JSONResponse({"error": "Thiết bị không tồn tại"}, status_code=404)
-
-#     device = res.data
-#     current_version = device["version"]
-#     device_name = device["name"]
-#     user_id = device["user_id"]
-
-#     print(f"🚀 Gửi OTA cho {device_id} ({device_name}) thuộc user {user_id}")
-
-#     ota = get_latest_ota(device_name, current_version)
-#     if not ota:
-#         return JSONResponse({"message": "Thiết bị đã ở phiên bản mới nhất"})
-
-#     if user_id in connected_devices and device_id in connected_devices[user_id]:
-#         ws = connected_devices[user_id][device_id]
-
-#         ota_with_device_id = {
-#             "device_id": device_id,
-#             **ota
-#         }
-
-#         await ws.send_json(ota_with_device_id)
-
-#         supabase.table("devices").update({"status": "waiting"}).eq(
-#             "device_id", device_id).execute()
-
-#         print(f"✅ Đã gửi OTA cho ESP {device_id}")
-#         return {"message": "Đã gửi OTA", "ota": ota_with_device_id}
-#     else:
-#         return JSONResponse({"error": "ESP chưa kết nối"}, status_code=400)
 @app.post("/api/update-device")
 async def update_device_api(request: Request):
     body = await request.json()
-    device_ids = body.get("device_ids")  # <- giờ nhận 1 list
+    device_ids = body.get("device_ids")
 
     if not device_ids or not isinstance(device_ids, list):
         return JSONResponse({"error": "Vui lòng cung cấp danh sách device_ids"}, status_code=400)
@@ -254,7 +216,7 @@ async def update_device_api(request: Request):
                 "*").eq("device_id", device_id).single().execute()
             if not res.data:
                 results.append(
-                    {"device_id": device_id, "status": "❌ Không tồn tại"})
+                    {"device_id": device_id, "status": "Không tồn tại"})
                 continue
 
             device = res.data
@@ -297,6 +259,100 @@ async def update_device_api(request: Request):
                 results.append({
                     "device_id": device_id,
                     "status": "✅ Đã gửi OTA"
+                })
+            else:
+                results.append({
+                    "device_id": device_id,
+                    "status": "⚠️ ESP chưa kết nối"
+                })
+
+        except Exception as e:
+            print(f"❌ Lỗi khi xử lý {device_id}: {e}")
+            results.append({
+                "device_id": device_id,
+                "status": f"❌ Lỗi: {str(e)}"
+            })
+
+    return {"results": results}
+
+
+def get_ota_by_version(device_name, version):
+    if not version.startswith("v"):
+        version = f"v{version}"
+
+    ota_url = f"{PUBLIC_BASE}/{device_name}/{version}/ota.json"
+    try:
+        resp = httpx.get(ota_url, timeout=5)
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            print(f"❌ Không tìm thấy OTA {version}: {resp.status_code}")
+            return None
+    except Exception as e:
+        print(f"❌ Lỗi khi tải OTA {version}: {e}")
+        return None
+
+
+@app.post("/api/update-device-version")
+async def update_device_api(request: Request):
+    body = await request.json()
+    device_ids = body.get("device_ids")
+    version = body.get("version")  # Thêm version từ body
+
+    if not device_ids or not isinstance(device_ids, list):
+        return JSONResponse({"error": "Vui lòng cung cấp danh sách device_ids"}, status_code=400)
+    if not version:
+        return JSONResponse({"error": "Vui lòng cung cấp version"}, status_code=400)
+
+    results = []
+
+    for device_id in device_ids:
+        try:
+            res = supabase.table("devices").select(
+                "*").eq("device_id", device_id).single().execute()
+            if not res.data:
+                results.append(
+                    {"device_id": device_id, "status": "Không tồn tại"})
+                continue
+
+            device = res.data
+            device_name = device["name"]
+            user_id = device["user_id"]
+
+            if not device_name or device_name.strip() == "":
+                results.append({
+                    "device_id": device_id,
+                    "status": "Thiết bị chưa đặt tên. Vui lòng đặt tên trước khi cập nhật"
+                })
+                continue
+
+            print(f"🚀 Xử lý OTA {version} cho {device_id} ({device_name})")
+
+            ota = get_ota_by_version(device_name, version)
+            if not ota:
+                results.append({
+                    "device_id": device_id,
+                    "status": f"❌ Không tìm thấy OTA version {version} cho thiết bị '{device_name}'"
+                })
+                continue
+
+            if user_id in connected_devices and device_id in connected_devices[user_id]:
+                ws = connected_devices[user_id][device_id]
+
+                ota_with_device_id = {
+                    "device_id": device_id,
+                    **ota
+                }
+
+                await ws.send_json(ota_with_device_id)
+
+                supabase.table("devices").update({"status": "waiting"}).eq(
+                    "device_id", device_id).execute()
+
+                print(f"✅ Gửi OTA {version} thành công cho ESP {device_id}")
+                results.append({
+                    "device_id": device_id,
+                    "status": f"✅ Đã gửi OTA version {version}"
                 })
             else:
                 results.append({

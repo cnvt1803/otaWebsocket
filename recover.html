@@ -1,66 +1,176 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
   <meta charset="UTF-8" />
-  <title>Reset Password</title>
+  <title>Đặt lại mật khẩu</title>
   <style>
+    * {
+      box-sizing: border-box;
+    }
+
     body {
-      font-family: Arial, sans-serif;
-      max-width: 400px;
-      margin: 50px auto;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f4f6f8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
     }
-    input, button {
+
+    .container {
+      background: #fff;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
       width: 100%;
-      padding: 10px;
-      margin: 10px 0;
+      max-width: 400px;
     }
+
+    h2 {
+      text-align: center;
+      margin-bottom: 24px;
+      color: #333;
+    }
+
+    input[type="password"] {
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 16px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: border-color 0.3s ease;
+    }
+
+    input[type="password"]:focus {
+      border-color: #3b82f6;
+      outline: none;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      background-color: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    button:hover {
+      background-color: #2563eb;
+    }
+
     .status {
       margin-top: 20px;
-      color: green;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 15px;
+      text-align: center;
+      display: none;
     }
-    .error {
-      color: red;
+
+    .status.success {
+      color: #15803d;
+      background-color: #dcfce7;
+      border: 1px solid #86efac;
+      display: block;
+    }
+
+    .status.error {
+      color: #b91c1c;
+      background-color: #fee2e2;
+      border: 1px solid #fca5a5;
+      display: block;
+    }
+
+    .status.loading {
+      color: #555;
+      background-color: #e0e0e0;
+      border: 1px solid #ccc;
+      display: block;
     }
   </style>
 </head>
 <body>
-
-  <h2>🔐 Đặt lại mật khẩu</h2>
-  <input type="password" id="new-password" placeholder="Mật khẩu mới" />
-  <button onclick="resetPassword()">Đặt lại mật khẩu</button>
-  <div id="status" class="status"></div>
+  <div class="container">
+    <h2>🔐 Đặt lại mật khẩu</h2>
+    <input type="password" id="new-password" placeholder="Mật khẩu mới" />
+    <input type="password" id="confirm-password" placeholder="Xác nhận mật khẩu" />
+    <button onclick="resetPassword()">Đặt lại mật khẩu</button>
+    <div id="status" class="status"></div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
   <script>
-    SUPABASE_URL = "https://zkzyawzjmllvqzmedsxd.supabase.co"
-    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inprenlhd3pqbWxsdnF6bWVkc3hkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE0MjkwMzUsImV4cCI6MjA2NzAwNTAzNX0.VWxY3zho-AI5eu8m5L-QQpOJN2hCE7UWcv0VayNIJS0"
+    const SUPABASE_URL = "https://zkzyawzjmllvqzmedsxd.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inprenlhd3pqbWxsdnF6bWVkc3hkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE0MjkwMzUsImV4cCI6MjA2NzAwNTAzNX0.VWxY3zho-AI5eu8m5L-QQpOJN2hCE7UWcv0VayNIJS0";
+    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const statusDiv = document.getElementById("status");
 
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    function showStatus(message, type = "success") {
+      statusDiv.textContent = message;
+      statusDiv.className = `status ${type}`;
+      statusDiv.style.display = "block";
+
+      if (type === "success") {
+        setTimeout(() => {
+          statusDiv.textContent = "";
+          statusDiv.className = "status";
+          statusDiv.style.display = "none";
+        }, 5000);
+      }
+    }
 
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
     const access_token = hashParams.get("access_token");
+    const error = hashParams.get("error");
+    const error_description = hashParams.get("error_description");
+
+    if (error) {
+      showStatus("❌ " + decodeURIComponent(error_description || "Có lỗi xảy ra"), "error");
+    }
 
     async function resetPassword() {
       const newPassword = document.getElementById("new-password").value;
-      const status = document.getElementById("status");
+      const confirmPassword = document.getElementById("confirm-password").value;
 
-      if (!newPassword) {
-        status.textContent = "❗ Vui lòng nhập mật khẩu mới";
-        status.classList.add("error");
+      if (!access_token) {
+        showStatus("❌ Không tìm thấy access_token trong URL", "error");
         return;
       }
 
-      const { data, error } = await supabase.auth.updateUser(
-        { password: newPassword },
-        { accessToken: access_token }
-      );
+      if (!newPassword || !confirmPassword) {
+        showStatus("❗ Vui lòng nhập đầy đủ cả hai ô mật khẩu", "error");
+        return;
+      }
 
-      if (error) {
-        status.textContent = "❌ Lỗi: " + error.message;
-        status.classList.add("error");
-      } else {
-        status.textContent = "✅ Đổi mật khẩu thành công! Bạn có thể đăng nhập lại.";
-        status.classList.remove("error");
+      if (newPassword !== confirmPassword) {
+        showStatus("❌ Mật khẩu xác nhận không khớp", "error");
+        return;
+      }
+
+      showStatus("⏳ Đang cập nhật mật khẩu...", "loading");
+
+      try {
+        const { data, error } = await client.auth.updateUser(
+          { password: newPassword },
+          { accessToken: access_token }
+        );
+
+        if (error) {
+          console.error(error);
+          showStatus("❌ Lỗi: " + error.message, "error");
+        } else {
+          console.log(data);
+          showStatus("✅ Mật khẩu đã được cập nhật thành công!", "success");
+        }
+      } catch (err) {
+        console.error(err);
+        showStatus("❌ Lỗi không xác định: " + err.message, "error");
       }
     }
   </script>

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Đăng ký & Gửi lại Email với Loading</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+</head>
+<body>
+
+  <h3>Đăng ký tài khoản</h3>
+  <input type="email" id="email" placeholder="Email"><br>
+  <input type="password" id="password" placeholder="Mật khẩu"><br>
+  <button onclick="signUp()" id="signup-btn">Đăng ký</button>
+  <p id="signup-status"></p>
+
+  <h3>Gửi lại email xác nhận</h3>
+  <input type="email" id="resend_email" placeholder="Email"><br>
+  <button onclick="resendConfirm()" id="resend-btn">Gửi lại xác nhận</button>
+  <p id="resend-status"></p>
+
+  <script>
+    const supabase = window.supabase.createClient(
+        'https://zkzyawzjmllvqzmedsxd.supabase.co',
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inprenlhd3pqbWxsdnF6bWVkc3hkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTQyOTAzNSwiZXhwIjoyMDY3MDA1MDM1fQ.IG8eGax0lUxkUOW8TpJ6M0QvSafB-gM2NWsg6wIOlTU'
+    );
+
+    async function signUp() {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      const status = document.getElementById('signup-status');
+      const btn = document.getElementById('signup-btn');
+
+      status.innerText = '⏳ Đang đăng ký...';
+      btn.disabled = true;
+
+      const { data, error } = await supabase.auth.signUp({
+        email: email,
+        password: password
+      });
+
+      if (error) {
+        status.innerText = '❌ Lỗi: ' + error.message;
+      } else {
+        status.innerText = '✅ Đăng ký thành công! Kiểm tra email để xác nhận.';
+      }
+      btn.disabled = false;
+    }
+
+    async function resendConfirm() {
+      const email = document.getElementById('resend_email').value;
+      const status = document.getElementById('resend-status');
+      const btn = document.getElementById('resend-btn');
+
+      status.innerText = '⏳ Đang gửi lại email...';
+      btn.disabled = true;
+
+      const { data, error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email
+      });
+
+      if (error) {
+        status.innerText = '❌ Lỗi: ' + error.message;
+      } else {
+        status.innerText = '✅ Đã gửi lại email xác nhận!';
+      }
+      btn.disabled = false;
+    }
+  </script>
+
+</body>
+</html>
