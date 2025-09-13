@@ -9,7 +9,7 @@ USER_ID = "0aa615bb-68a4-4a46-a461-ecd7fa9b1432"
 
 
 async def fake_esp():
-    uri = f"ws://localhost:8765/ws/{USER_ID}"
+    uri = f"wss://otawebsocket.onrender.com/ws/{USER_ID}"
 
     try:
         async with websockets.connect(uri) as websocket:

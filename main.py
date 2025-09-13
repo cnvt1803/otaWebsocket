@@ -73,6 +73,9 @@ async def handle_reconnect_timeout(device_id: str):
         }).eq("device_id", device_id).execute()
     except asyncio.CancelledError:
         print(f"✅ ESP {device_id} đã reconnect — bỏ cảnh báo")
+        supabase.table("devices").update({
+            "warning": ""
+        }).eq("device_id", device_id).execute()
 
 
 @app.websocket("/ws/{user_id}")
