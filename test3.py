@@ -11,8 +11,8 @@ FIRMWARE_VERSION = "1.0.0"
 
 # Địa chỉ WebSocket server
 # Thay bằng IP hoặc domain nếu chạy online
-WS_URL = f"ws://localhost:8765/ws/{USER_ID}"
-
+# WS_URL = f"ws://localhost:8765/ws/{USER_ID}"
+WS_URL = "wss://otawebsocket.onrender.com/ws/0aa615bb-68a4-4a46-a461-ecd7fa9b1432"
 # Giả lập quá trình OTA
 
 

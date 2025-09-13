@@ -31,6 +31,7 @@ SUPABASE_JWT_SECRET = "koJJ0d58iKJYPdhEZhBIBKLEXno9HRWgE6eCC7SVsd/HrbcPfSsxgvppG
 SUPABASE_BUCKET = "ota"
 SUPABASE_FOLDER = "ota_muti"
 PUBLIC_BASE = f"https://zkzyawzjmllvqzmedsxd.storage.supabase.co/v1/object/public/{SUPABASE_BUCKET}/{SUPABASE_FOLDER}"
+PUBLIC_BASE_new = f"https://zkzyawzjmllvqzmedsxd.supabase.co/storage/v1/object/public/{SUPABASE_BUCKET}/{SUPABASE_FOLDER}"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ✅ Danh sách thiết bị đang kết nối
@@ -280,7 +281,7 @@ def get_ota_by_version(device_name, version):
     if not version.startswith("v"):
         version = f"v{version}"
 
-    ota_url = f"{PUBLIC_BASE}/{device_name}/{version}/ota.json"
+    ota_url = f"{PUBLIC_BASE_new}/{device_name}/{version}/ota.json"
     try:
         resp = httpx.get(ota_url, timeout=5)
         if resp.status_code == 200:
@@ -747,7 +748,7 @@ async def upload_firmware(
             # ✅ Tạo nội dung ota JSON
             file_size = round(len(firmware_bytes) / (1024 * 1024), 2)
             today = str(date.today())
-            public_url = f"{PUBLIC_BASE}/{device_name}/{version}/firmware.bin"
+            public_url = f"{PUBLIC_BASE_new}/{device_name}/{version}/firmware.bin"
             ota = {
                 "version": version.replace("v", ""),
                 "file": "firmware.bin",
