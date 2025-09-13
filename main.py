@@ -615,7 +615,7 @@ async def update_device_info(request: Request, authorization: str = Header(None)
         return JSONResponse({"error": "Thiếu device_id"}, status_code=400)
 
     # 🎯 Chỉ cho phép sửa 3 trường này
-    allowed_fields = ["name", "location", "version"]
+    allowed_fields = ["name", "location"]
     update_data = {key: body[key] for key in allowed_fields if key in body}
 
     if not update_data:
