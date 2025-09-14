@@ -186,6 +186,11 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                             "command": "ACK_FAILED",
                             "message": "Không thể tạo thiết bị mới"
                         })
+                elif command == "KEEP_ALIVE":
+                    print(f"keep alive từ {device_id}")
+                    await websocket.send_json({
+                        "command": "ACK_KEEP_ALIVE"
+                    })
                 else:
                     print(f"Lệnh không xác định: {command}")
 
